@@ -16,13 +16,15 @@ sns.set_context("poster")
 import random
 
 
+
 #initialize the dataframe with 1980 data
-since_1980_df = pd.DataFrame()
-since_1980_df = pd.read_csv('http://wichita.ogs.ou.edu/eq/catalog/1980/1980.csv')
+eq_df = pd.DataFrame()
+eq_df = pd.read_csv('http://wichita.ogs.ou.edu/eq/catalog/1980/1980.csv')
 
 # add additional years
 for year in range(1981,2016):
     url = 'http://wichita.ogs.ou.edu/eq/catalog/' + str(year) + '/' + str(year) + '.csv'
     temp_df = pd.read_csv(url)
     # This might not be the most efficient method
-    since_1980_df = since_1980_df.append(temp_df)
+    eq_df = eq_df.append(temp_df)
+eq_df.head()
