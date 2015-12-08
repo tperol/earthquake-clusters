@@ -27,6 +27,7 @@ import csv
 from matplotlib import rcParams
 # Load package for linear model
 import statsmodels.formula.api as sm
+import itertools as it
 
 
 # ------------------------------------------
@@ -38,16 +39,10 @@ eq_df = pd.DataFrame.from_csv('./tempdata/earthquakes_catalog.csv',sep = '|')
 # filter to keep magnitude >= 3
 eq_df  = eq_df[eq_df.prefmag >= 3.0]
 
-# Load the wells dataframe. Note I load the csv, 3.1 MB instead of .xlsx = 36 MB
-welldf = pd.DataFrame.from_csv('./tempdata/wells.csv',sep = '|')
+# Load the wells dataframe.  
+welldf = pd.DataFrame.from_csv('./tempdata/wells_data.csv',sep = ',')
 
-# Separate data into areas
-# Observe extreme values
-print min(eq_df.longitude), max(eq_df.longitude)
-print min(welldf.X), max(welldf.X)
-print min(eq_df.latitude), max(eq_df.latitude)
-print min(welldf.Y), max(welldf.Y)
-
+print welldf.head()
 
 # Make ranges
 xregions1 = np.arange(33.5, 37., .5)
@@ -59,60 +54,70 @@ yregions = zip(yregions1, yregions2)
 regions = []
 
 
-# Return a tuple. First tuple is latitude, second is longitude.
+# Create a dictionary with keys = (slice in long, slice in latitude)
+# value = number of the grid cell
+tic  = time.time()
 for x in xregions:
     for y in yregions:
         regions.append((x,y))
-
-print regions[0:2:10]
-
 locdict = dict(zip(regions, range(len(regions))))
+print len(locdict)
+toc = time.time() - tic
+print 'time to loop', toc
 
-# def find_region(rowquake):
-#     for region in regions:
-#         if (rowquake['latitude'] < region[0][1]) \
-#         & (rowquake['latitude'] >= region[0][0]) \
-#         & (rowquake['longitude'] < region[1][1]) \
-#         & (rowquake['longitude'] >= region[1][0]):
-#                 reg = locdict[region]
-#                 break
-#     return 1, 0, rowquake['year'], reg, 0
+
+# tic  = time.time()
+# regions = it.product(xregions,yregions)
+# toc = time.time() - tic
+# locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
+# print len(locdict)
+# print 'time to loop', toc
+
+def find_region(rowquake):
+    for region in regions:
+        if (rowquake['latitude'] < region[0][1]) \
+        & (rowquake['latitude'] >= region[0][0]) \
+        & (rowquake['longitude'] < region[1][1]) \
+        & (rowquake['longitude'] >= region[1][0]):
+                reg = locdict[region]
+                break
+    return 1, 0, rowquake['year'], reg, 0
     
-# quakes = eq_df.apply(find_region, axis=1)
-# quakedf = {}; quakedf['quakes'] = []; quakedf['wells'] = []; quakedf['year'] = []; quakedf['region'] = []
-# quakedf['Volume'] = []
-# for quake, well, year, region, press in quakes:
-#     quakedf['quakes'].append(quake); quakedf['wells'].append(well); quakedf['year'].append(year)
-#     quakedf['region'].append(region); quakedf['Volume'].append(press)
-# quakedf =  pd.DataFrame(quakedf)
+quakes = eq_df.apply(find_region, axis=1)
+quakedf = {}; quakedf['quakes'] = []; quakedf['wells'] = []; quakedf['year'] = []; quakedf['region'] = []
+quakedf['Volume'] = []
+for quake, well, year, region, press in quakes:
+    quakedf['quakes'].append(quake); quakedf['wells'].append(well); quakedf['year'].append(year)
+    quakedf['region'].append(region); quakedf['Volume'].append(press)
+quakedf =  pd.DataFrame(quakedf)
 
-# # Same function as above but for wells
-# def find_region(rowquake):
-#     for region in regions:
-#         if (rowquake['Y'] < region[0][1]) \
-#         & (rowquake['Y'] >= region[0][0]) \
-#         & (rowquake['X'] < region[1][1]) \
-#         & (rowquake['X'] >= region[1][0]):
-#                 reg = locdict[region]
-#                 break
-#     return 0, 1, 2009, reg, rowquake['Volume'] # WE ASSUME THAT THE WELLS STARTED IN 2009. WE NEED MORE DATA TO PROVE THIS
+# Same function as above but for wells
+def find_region(rowquake):
+    for region in regions:
+        if (rowquake['Y'] < region[0][1]) \
+        & (rowquake['Y'] >= region[0][0]) \
+        & (rowquake['X'] < region[1][1]) \
+        & (rowquake['X'] >= region[1][0]):
+                reg = locdict[region]
+                break
+    return 0, 1, 2009, reg, rowquake['Volume'] # WE ASSUME THAT THE WELLS STARTED IN 2009. WE NEED MORE DATA TO PROVE THIS
 
-# wells = welldf.apply(find_region, axis = 1)
-# welldf = {}; welldf['quakes'] = []; welldf['wells'] = []; welldf['year'] = []; welldf['region'] = []
-# welldf['Volume'] = []
-# for quake, well, year, region, press in wells:
-#     welldf['quakes'].append(quake); welldf['wells'].append(well); welldf['year'].append(year)
-#     welldf['region'].append(region); welldf['Volume'].append(press)
-# welldf =  pd.DataFrame(welldf)
-
-
-# datadf = pd.concat([quakedf, welldf]) # Some maxpressure's are empty. Fix this
-# datadf['year'] = 1*(datadf['year'] >= 2009)
-# datadf_reg = datadf.groupby(['region', 'year']).sum().reset_index()
-# #type(datadf_reg.max_pressure)
+wells = welldf.apply(find_region, axis = 1)
+welldf = {}; welldf['quakes'] = []; welldf['wells'] = []; welldf['year'] = []; welldf['region'] = []
+welldf['Volume'] = []
+for quake, well, year, region, press in wells:
+    welldf['quakes'].append(quake); welldf['wells'].append(well); welldf['year'].append(year)
+    welldf['region'].append(region); welldf['Volume'].append(press)
+welldf =  pd.DataFrame(welldf)
 
 
-# print datadf_reg.head()
+datadf = pd.concat([quakedf, welldf]) # Some maxpressure's are empty. Fix this
+datadf['year'] = 1*(datadf['year'] >= 2009)
+datadf_reg = datadf.groupby(['region', 'year']).sum().reset_index()
+#type(datadf_reg.max_pressure)
+
+
+print datadf_reg.head()
 
 # olsQuakes = sm.ols(formula = 'quakes ~ wells + year + Volume + wells*Volume', data = datadf_reg).fit()
 # print olsQuakes.summary()

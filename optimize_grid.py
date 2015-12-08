@@ -24,15 +24,37 @@ import csv
 
 # Default plotting
 from matplotlib import rcParams
+# Load package for linear model
+import statsmodels.formula.api as sm
+import itertools as it
 
 
 # ------------------------------------------
-# LOAD DATAFRAME
+# LOAD DATAFRAMES
 # ------------------------------------------
-
+ 
+# Load the earthquakes datafram 
 eq_df = pd.DataFrame.from_csv('./tempdata/earthquakes_catalog.csv',sep = '|')
-
-# Define a mask that only keeps magnitude higher than 3
+# filter to keep magnitude >= 3
 eq_df  = eq_df[eq_df.prefmag >= 3.0]
 
-print eq_df.head()
+# Load the wells dataframe.  
+welldf = pd.DataFrame.from_csv('./tempdata/wells_data.csv',sep = ',')
+
+print welldf.head()
+
+# Make ranges
+xregions1 = np.arange(33.5, 37., .5)
+xregions2 = np.arange(34., 37.5, .5) 
+xregions = zip(xregions1, xregions2)
+yregions1 = np.arange(-103.,-94. , .5) 
+yregions2 = np.arange(-102.5 ,-93.5, .5)
+yregions = zip(yregions1, yregions2)
+
+# Create a dictionary with keys = (slice in long, slice in latitude)
+# value = number of the grid cell
+regions = it.product(xregions,yregions)
+locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
+
+
+
