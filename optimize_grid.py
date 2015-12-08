@@ -90,6 +90,6 @@ for region in locdict.keys():
 
 
 olsQuakes = sm.ols(formula = 'quakes ~ wells + volume ', data = reg_df).fit()
-# print olsQuakes.summary()
+print olsQuakes.summary()
 
 
