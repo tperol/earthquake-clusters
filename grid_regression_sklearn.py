@@ -22,6 +22,15 @@ import json
 import time
 import csv
 import itertools as it
+import random
+import logging
+logging.basicConfig(level=logging.DEBUG,
+                    format='[%(levelname)s] (%(threadName)-10s) %(message)s',
+                    )
+
+# library for multithreading
+import threading
+
 
 
 # Default plotting
@@ -30,86 +39,153 @@ from matplotlib import rcParams
 # Load package for linear model
 from sklearn import linear_model
 from sklearn.cross_validation import train_test_split
+from sklearn.grid_search import GridSearchCV
+from sklearn import preprocessing
 
 
-def do_regression(eq_df, welldf, interval):
+def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
 
-	# ------------------------------------------
-	# PARTITION THE MAP INTO CELLS = CREATE THE GRID
-	# ------------------------------------------
+	global best_grid
 
-	# Make ranges
-	xregions1 = np.arange(33.5, 37., interval)
-	xregions2 = np.arange(34., 37.5, interval) 
-	xregions = zip(xregions1, xregions2)
-	yregions1 = np.arange(-103.,-94. , interval) 
-	yregions2 = np.arange(-102.5 ,-93.5, interval)
-	yregions = zip(yregions1, yregions2)
+	for interval in intervals:
 
-	# Create a dictionary with keys = (slice in long, slice in latitude)
-	# value = number of the grid cell
-	regions = it.product(xregions,yregions)
-	locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
+		# ------------------------------------------
+		# PARTITION THE MAP INTO CELLS = CREATE THE GRID
+		# ------------------------------------------
 
-	print 'total number of region', len(locdict.keys())
+		# Make ranges
+		xregions1 = np.arange(33.5, 37., interval)
+		xregions2 = np.arange(34., 37.5, interval) 
+		xregions = zip(xregions1, xregions2)
+		yregions1 = np.arange(-103.,-94. , interval) 
+		yregions2 = np.arange(-102.5 ,-93.5, interval)
+		yregions = zip(yregions1, yregions2)
 
-
-	def mask_region(df, region):
-		mask_region = (df['latitude'] < region[0][1]) \
-		        & (df['latitude'] >= region[0][0]) \
-		        & (df['longitude'] < region[1][1]) \
-		        & (df['longitude'] >= region[1][0])
-		return mask_region
-
-	# Filter by time
-	eq_df_prior = eq_df[eq_df.year < 2010]
-	welldf_prior = welldf[welldf.year < 2010]
-	eq_df_post = eq_df[eq_df.year >= 2010]
-	welldf_post = welldf[welldf.year >= 2010]
+		# Create a dictionary with keys = (slice in long, slice in latitude)
+		# value = number of the grid cell
+		regions = it.product(xregions,yregions)
+		locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
 
 
+		def mask_region(df, region):
+			mask_region = (df['latitude'] < region[0][1]) \
+			        & (df['latitude'] >= region[0][0]) \
+			        & (df['longitude'] < region[1][1]) \
+			        & (df['longitude'] >= region[1][0])
+			return mask_region
 
-	X_prior = []
-	X_post = []
-	Y_prior = []
-	Y_post = [] 
-	### Start grid size loop here
-	for region in locdict.keys():
+		# Filter by time
+		eq_df_prior = eq_df[eq_df.year < 2010]
+		welldf_prior = welldf[welldf.year < 2010]
+		eq_df_post = eq_df[eq_df.year >= 2010]
+		welldf_post = welldf[welldf.year >= 2010]
 
-		# generate dataframe for regression with data < 2010
 
-		# add the number of quakes per region		
-		Y_prior.append(int(eq_df_prior[mask_region(eq_df_prior,region)].count().values[0]))
-		# add the number of wells per region
-		# add the total volume injected per region
-		# add them with into X_prior as [nb wells, volume]
-		X_prior.append([int(welldf_prior[mask_region(welldf_prior,region)].count().values[0])
-			, int(welldf_prior[mask_region(welldf_prior,region)].volume.sum())])
 
-		# generate dataframe for regression with data >= 2010
+		X_prior = []
+		X_post = []
+		Y_prior = []
+		Y_post = [] 
+		### Start grid size loop here
+		for region in locdict.keys():
 
-		# add the number of quakes per region		
-		Y_post.append(eq_df_post[mask_region(eq_df_post,region)].count().values[0])	
-		# add the number of wells per region
-		# add the total volume injected per region
-		# add them with into X_post as [nb wells, volume]
-		X_post.append([welldf_post[mask_region(welldf_post,region)].count().values[0]
-			, welldf_post[mask_region(welldf_post,region)].volume.sum()])
+			# generate dataframe for regression with data < 2010
 
-	X_prior = np.array(X_prior)
-	X_post = np.array(X_post)
+			# add the number of quakes per region		
+			Y_prior.append(eq_df_prior[mask_region(eq_df_prior,region)].count().values[0])
+			# add the number of wells per region
+			# add the total volume injected per region
+			# add them with into X_prior as [nb wells, volume]
+			X_prior.append([welldf_prior[mask_region(welldf_prior,region)].count().values[0]
+				, welldf_prior[mask_region(welldf_prior,region)].volume.sum()])
 
-	# ------------------------------------------
-	# DOING THE REGRESSION
-	# ------------------------------------------
-	# Using scikit learn
+			# generate dataframe for regression with data >= 2010
 
-	# Split in train - test 
-	X_train, X_test, y_train, y_test = train_test_split(X_prior, Y_prior, test_size=0.33, random_state=42)
+			# add the number of quakes per region		
+			Y_post.append(eq_df_post[mask_region(eq_df_post,region)].count().values[0])	
+			# add the number of wells per region
+			# add the total volume injected per region
+			# add them with into X_post as [nb wells, volume]
+			X_post.append([welldf_post[mask_region(welldf_post,region)].count().values[0]
+				, welldf_post[mask_region(welldf_post,region)].volume.sum()])
 
-	clf = linear_model.LinearRegression()
-	clf.fit(X_train, y_train)
-	print clf.score(X_test, y_test)
+		X_prior = np.array(X_prior,dtype=np.float64)
+		X_post = np.array(X_post,dtype=np.float64)
+		Y_post = np.array(Y_post, dtype=np.float64).reshape(-1,1)
+		Y_prior = np.array(Y_prior, dtype = np.float64).reshape(-1,1)
+
+		# ------------------------------------------
+		# DOING THE REGRESSION
+		# ------------------------------------------
+
+		# --------------------
+		# SPLIT INTO TRAIN AND TEST
+		# --------------------
+
+		# Split in train - test 
+		X_train, X_test, y_train, y_test = train_test_split(X_post, Y_post, test_size=0.33, random_state=42)
+
+
+		# --------------------
+		# STANDARDIZATION OF THE DATA -- SCALING
+		# --------------------
+
+		if standardization == 'scaler':
+
+			scaler = preprocessing.StandardScaler().fit(X_train)
+			X_train = scaler.fit_transform(X_train)
+			X_test = scaler.transform(X_test)
+			y_train = scaler.fit_transform(y_train)
+			y_test = scaler.transform(y_test)
+
+		elif standardization == 'MinMaxScaler':
+			min_max_scaler = preprocessing.MinMaxScaler()
+			X_train = min_max_scaler.fit_transform(X_train)
+			X_test = min_max_scaler.transform(X_test)
+			y_train = min_max_scaler.fit_transform(y_train)
+			y_test = min_max_scaler.transform(y_test)
+		else:
+			pass
+
+
+		# --------------------
+		# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
+		# AND ORDINARY LEAST SQUARE REGRESSION
+		# no need for Lasso because only 2 features
+		# --------------------
+
+
+		# # Using Ordinary Least Square Regression
+		# clf = linear_model.LinearRegression()
+		# clf.fit(X_train, y_train)
+		# logging.debug('For {} cells the score is {}'.format(len(locdict.keys()),clf.score(X_test, y_test)))
+
+
+		# # Using Ridge Regression and cross-validation
+		# # doing the selection manually
+		# # uncomment this part to check it matches the next paragraph
+		# clf = linear_model.Ridge()
+		# parameters = {'alpha': [0.1, 0.5]}
+		# gs = GridSearchCV(clf, param_grid=parameters, cv=5)
+		# gs.fit(X_train, y_train)
+
+		# best = gs.best_estimator_
+		# best.fit(X_train, y_train)
+		# logging.debug('For {} cells the score of manual Ridge is {}'.format(len(locdict.keys()),best.score(X_test, y_test)))
+
+
+
+		# Using Ridge Regression with built-in cross validation
+		# of the alpha parameters
+		# note that alpha = 0 corresponds to the Ordinary Least Square Regression
+		clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv = cv)
+		clf.fit(X_train, y_train)
+
+		logging.debug('For {} cells the score of RidgeCV is {} with alpha = {}'\
+			.format(len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+
+		with lock:
+			best_grid.append([clf,clf.score(X_test, y_test),interval])
 
 
 	return
@@ -132,9 +208,46 @@ if __name__ == '__main__':
 	# Load the wells dataframe.  
 	welldf = pd.DataFrame.from_csv('tempdata/wells_data.csv')
 
+	# define the intervals
+	intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
+	# intervals = [0.8,0.9, 1.0, 1.5, 2.0]
 
+	# define the number of threads
+	num_threads = 4
 
-	do_regression(eq_df, welldf, interval = 0.5)
+    # split randomely the letters in batch for the various threads
+	all_batch = []
+	size_batch = len(intervals) / num_threads
+	for i in range(num_threads-1):
+		batch_per_threads = random.sample(intervals,size_batch)
+		all_batch.append(batch_per_threads)
+		# new set
+		intervals  = list(set(intervals) - set(batch_per_threads))
+	# now get the rest
+	all_batch.append(intervals)
+	print('look at all_batch {}'.format(all_batch))
+
+	# parallelize the loop of interval
+	threads = []
+	best_grid = []
+	lock = threading.Lock()
+	for thread_id in range(num_threads):
+		interval = all_batch[thread_id]
+		t = threading.Thread(target = do_regression, \
+			args = (eq_df, welldf, interval, lock ))
+		threads.append(t)
+
+	print 'Starting multithreading'
+	map(lambda t:t.start(), threads)
+	map(lambda t: t.join(), threads)
+
+	best_score = [[c[1],c[2]] for c in best_grid]
+	best_score = np.array(best_score)
+	best_index = np.where(best_score[:,0] == max(best_score[:,0]))[0][0]
+	print('Best classifier is for alpha ={}'.format(best_grid[best_index][0].alpha_))
+	print('Coefs are ={}'.format(best_grid[best_index][0].coef_))
+	print('R^2 = {}'.format(best_grid[best_index][1]))
+	print('best interval is {}'.format(best_grid[best_index][2]))
 
 
 
