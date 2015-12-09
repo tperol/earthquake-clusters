@@ -45,7 +45,8 @@ from sklearn import preprocessing
 
 def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
 
-	global best_grid
+	global best_grid_prior
+	global best_grid_post
 
 	for interval in intervals:
 
@@ -118,74 +119,88 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 		# DOING THE REGRESSION
 		# ------------------------------------------
 
-		# --------------------
-		# SPLIT INTO TRAIN AND TEST
-		# --------------------
-
-		# Split in train - test 
-		X_train, X_test, y_train, y_test = train_test_split(X_post, Y_post, test_size=0.33, random_state=42)
-
-
-		# --------------------
-		# STANDARDIZATION OF THE DATA -- SCALING
-		# --------------------
-
-		if standardization == 'scaler':
-
-			scaler = preprocessing.StandardScaler().fit(X_train)
-			X_train = scaler.fit_transform(X_train)
-			X_test = scaler.transform(X_test)
-			y_train = scaler.fit_transform(y_train)
-			y_test = scaler.transform(y_test)
-
-		elif standardization == 'MinMaxScaler':
-			min_max_scaler = preprocessing.MinMaxScaler()
-			X_train = min_max_scaler.fit_transform(X_train)
-			X_test = min_max_scaler.transform(X_test)
-			y_train = min_max_scaler.fit_transform(y_train)
-			y_test = min_max_scaler.transform(y_test)
-		else:
-			pass
+		reg_for = ['prior', 'post']
+		for reg in reg_for:
+			if reg == 'prior':
+				X = X_prior
+				Y = Y_prior
+			elif reg == 'post':
+				X = X_post
+				Y = Y_post
 
 
-		# --------------------
-		# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
-		# AND ORDINARY LEAST SQUARE REGRESSION
-		# no need for Lasso because only 2 features
-		# --------------------
+			# --------------------
+			# SPLIT INTO TRAIN AND TEST
+			# --------------------
+
+			# Split in train - test 
+			X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.33, random_state=42)
 
 
-		# # Using Ordinary Least Square Regression
-		# clf = linear_model.LinearRegression()
-		# clf.fit(X_train, y_train)
-		# logging.debug('For {} cells the score is {}'.format(len(locdict.keys()),clf.score(X_test, y_test)))
+			# --------------------
+			# STANDARDIZATION OF THE DATA -- SCALING
+			# --------------------
+
+			if standardization == 'scaler':
+
+				scaler = preprocessing.StandardScaler().fit(X_train)
+				X_train = scaler.fit_transform(X_train)
+				X_test = scaler.transform(X_test)
+				y_train = scaler.fit_transform(y_train)
+				y_test = scaler.transform(y_test)
+
+			elif standardization == 'MinMaxScaler':
+				min_max_scaler = preprocessing.MinMaxScaler()
+				X_train = min_max_scaler.fit_transform(X_train)
+				X_test = min_max_scaler.transform(X_test)
+				y_train = min_max_scaler.fit_transform(y_train)
+				y_test = min_max_scaler.transform(y_test)
+			else:
+				pass
 
 
-		# # Using Ridge Regression and cross-validation
-		# # doing the selection manually
-		# # uncomment this part to check it matches the next paragraph
-		# clf = linear_model.Ridge()
-		# parameters = {'alpha': [0.1, 0.5]}
-		# gs = GridSearchCV(clf, param_grid=parameters, cv=5)
-		# gs.fit(X_train, y_train)
-
-		# best = gs.best_estimator_
-		# best.fit(X_train, y_train)
-		# logging.debug('For {} cells the score of manual Ridge is {}'.format(len(locdict.keys()),best.score(X_test, y_test)))
+			# --------------------
+			# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
+			# AND ORDINARY LEAST SQUARE REGRESSION
+			# no need for Lasso because only 2 features
+			# --------------------
 
 
+			# # Using Ordinary Least Square Regression
+			# clf = linear_model.LinearRegression()
+			# clf.fit(X_train, y_train)
+			# logging.debug('For {} cells the score is {}'.format(len(locdict.keys()),clf.score(X_test, y_test)))
 
-		# Using Ridge Regression with built-in cross validation
-		# of the alpha parameters
-		# note that alpha = 0 corresponds to the Ordinary Least Square Regression
-		clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv = cv)
-		clf.fit(X_train, y_train)
 
-		logging.debug('For {} cells the score of RidgeCV is {} with alpha = {}'\
-			.format(len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+			# # Using Ridge Regression and cross-validation
+			# # doing the selection manually
+			# # uncomment this part to check it matches the next paragraph
+			# clf = linear_model.Ridge()
+			# parameters = {'alpha': [0.1, 0.5]}
+			# gs = GridSearchCV(clf, param_grid=parameters, cv=5)
+			# gs.fit(X_train, y_train)
 
-		with lock:
-			best_grid.append([clf,clf.score(X_test, y_test),interval])
+			# best = gs.best_estimator_
+			# best.fit(X_train, y_train)
+			# logging.debug('For {} cells the score of manual Ridge is {}'.format(len(locdict.keys()),best.score(X_test, y_test)))
+
+
+
+			# Using Ridge Regression with built-in cross validation
+			# of the alpha parameters
+			# note that alpha = 0 corresponds to the Ordinary Least Square Regression
+			clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv = cv)
+			clf.fit(X_train, y_train)
+
+			logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
+				.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+
+			with lock:
+				if reg == 'prior': 
+					best_grid_prior.append([clf,clf.score(X_test, y_test),interval])
+				elif reg == 'post':
+					best_grid_post.append([clf,clf.score(X_test, y_test),interval])
+
 
 
 	return
@@ -227,7 +242,9 @@ if __name__ == '__main__':
 	all_batch.append(intervals)
 	print('look at all_batch {}'.format(all_batch))
 
-	best_grid = []
+	best_grid_prior = []
+	best_grid_post = []
+
 	# Vary the standardization and find optimum
 	for standardization in ['None','scaler','MinMaxScaler'] :
 		# parallelize the loop of interval
@@ -244,13 +261,22 @@ if __name__ == '__main__':
 		map(lambda t: t.join(), threads)
 
 
-	best_score = [[c[1],c[2]] for c in best_grid]
-	best_score = np.array(best_score)
-	best_index = np.where(best_score[:,0] == max(best_score[:,0]))[0][0]
-	print('Best classifier is for alpha ={}'.format(best_grid[best_index][0].alpha_))
-	print('Coefs are ={}'.format(best_grid[best_index][0].coef_))
-	print('R^2 = {}'.format(best_grid[best_index][1]))
-	print('Best interval is {}'.format(best_grid[best_index][2]))
+	best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
+	best_score_prior = np.array(best_score_prior)
+	best_index_prior = np.where(best_score_prior[:,0] == max(best_score_prior[:,0]))[0][0]
+	print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
+	print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
+	print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
+	print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
+
+
+	best_score_post = [[c[1],c[2]] for c in best_grid_post]
+	best_score_post = np.array(best_score_post)
+	best_index_post = np.where(best_score_post[:,0] == max(best_score_post[:,0]))[0][0]
+	print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
+	print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
+	print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
+	print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
 
 
 
