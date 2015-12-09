@@ -42,6 +42,28 @@ from sklearn.cross_validation import train_test_split
 from sklearn.grid_search import GridSearchCV
 from sklearn import preprocessing
 
+def get_hours_between(df):
+    dates=[]
+    origintimes = df.origintime.values
+    for date in origintimes:
+        year, month, day = date.split('-')
+        day, hour = day.split(' ')
+        hour, minute, second = hour.split(':')
+        if len(second.split('.'))==2:
+            second, microsecond = second.split('.')
+        elif len(second.split('.'))==1:
+            microsecond=0
+        dates.append(datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), 
+                                       int(second), int(microsecond)))
+    dates=sorted(dates)
+    deltas=[]
+    for i in range(1,len(dates)):
+        delta = dates[i] - dates[i-1]
+        delta = delta.total_seconds()/3600
+        deltas.append(delta)
+    deltas = np.array(deltas)
+    return deltas
+
 
 def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
 
@@ -228,20 +250,22 @@ if __name__ == '__main__':
 	print('look at all_batch {}'.format(all_batch))
 
 	best_grid = []
-	# Vary the standardization and find optimum
-	for standardization in ['None','scaler','MinMaxScaler'] :
-		# parallelize the loop of interval
-		threads = []
-		lock = threading.Lock()
-		for thread_id in range(num_threads):
-			interval = all_batch[thread_id]
-			t = threading.Thread(target = do_regression, \
-				args = (eq_df, welldf, interval, lock ,5,standardization))
-			threads.append(t)
+	# # Vary the standardization and find optimum
+	# for standardization in ['None','scaler','MinMaxScaler'] :
 
-		print 'Starting multithreading'
-		map(lambda t:t.start(), threads)
-		map(lambda t: t.join(), threads)
+		
+	# parallelize the loop of interval
+	threads = []
+	lock = threading.Lock()
+	for thread_id in range(num_threads):
+		interval = all_batch[thread_id]
+		t = threading.Thread(target = do_regression, \
+			args = (eq_df, welldf, interval, lock ,5,standardization))
+		threads.append(t)
+
+	print 'Starting multithreading'
+	map(lambda t:t.start(), threads)
+	map(lambda t: t.join(), threads)
 
 
 	best_score = [[c[1],c[2]] for c in best_grid]
