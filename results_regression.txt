@@ -74,3 +74,26 @@ normal
 [DEBUG] (Thread-3  ) For 12600 cells the score of RidgeCV is 0.11524151906 with alpha = 100000.0
 [DEBUG] (Thread-3  ) For 18 cells the score of RidgeCV is -5206.28206706 with alpha = 0.0
 [DEBUG] (Thread-3  ) For 10 cells the score of RidgeCV is 0.0 with alpha = 0.0
+
+
+normal
+[DEBUG] (Thread-3  ) For 36 cells the score of RidgeCV is -1.77947046311 with alpha = 100000.0
+[DEBUG] (Thread-3  ) For 65 cells the score of RidgeCV is 0.100042779008 with alpha = 100000.0
+[DEBUG] (Thread-3  ) For 10 cells the score of RidgeCV is 0.0 with alpha = 0.0
+[DEBUG] (Thread-1  ) For 126 cells the score of RidgeCV is 0.0238106193325 with alpha = 0.0
+[DEBUG] (Thread-1  ) For 40 cells the score of RidgeCV is -0.570468708019 with alpha = 100000.0
+[DEBUG] (Thread-4  ) For 207 cells the score of RidgeCV is -0.0729175204366 with alpha = 100000.0
+[DEBUG] (Thread-1  ) For 90 cells the score of RidgeCV is -0.545368353091 with alpha = 0.0
+[DEBUG] (Thread-4  ) For 360 cells the score of RidgeCV is 0.103405447476 with alpha = 100000.0
+[DEBUG] (Thread-2  ) For 810 cells the score of RidgeCV is 0.233811765337 with alpha = 10000.0
+[DEBUG] (Thread-2  ) For 18 cells the score of RidgeCV is -5206.28206706 with alpha = 0.0
+[DEBUG] (Thread-2  ) For 60 cells the score of RidgeCV is -0.0643798227396 with alpha = 100000.0
+[DEBUG] (Thread-4  ) For 12600 cells the score of RidgeCV is 0.11524151906 with alpha = 100000.0
+[DEBUG] (Thread-4  ) For 3150 cells the score of RidgeCV is 0.11957028152 with alpha = 0.0
+Best classifier is for alpha =10000.0
+R^2 = 0.233811765337
+best interval is 0.2
+
+
+
+scale nin max
