@@ -66,6 +66,8 @@ def get_hours_between(df):
         delta = delta.total_seconds()/3600
         deltas.append(delta)
     deltas = np.array(deltas)
+    print 'number of events in region:' df.origintime.count()
+    print 'deltas vector', deltas
     return deltas
 
 
@@ -149,7 +151,9 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 				X_prior.append(X_post_append)
 
 		print 'X_prior',X_prior
+		print 'size of X_prior', len(X_prior)
 		print 'Y_prior', Y_prior
+		print 'size of Y_prior', len(Y_prior)
 		X_prior = np.array(X_prior,dtype=np.float64)
 		X_post = np.array(X_post,dtype=np.float64)
 		Y_post = np.array(Y_post, dtype=np.float64).reshape(-1,1)
