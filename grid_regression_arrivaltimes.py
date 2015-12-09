@@ -66,7 +66,7 @@ def get_hours_between(df):
         delta = delta.total_seconds()/3600
         deltas.append(delta)
     deltas = np.array(deltas)
-    print 'number of events in region:' df.origintime.count()
+    print 'number of events in region:', df.origintime.count()
     print 'deltas vector', deltas
     return deltas
 
