@@ -203,6 +203,142 @@ def do_grid_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization =
 				X = X_post
 				Y = Y_post
 
+			clf, X_test, y_test  = do_regression(X,Y,reg,locdict,lock, cv ,standardization)	
+
+			logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
+				.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+
+			with lock:
+				if reg == 'prior': 
+					best_grid_prior.append([clf,clf.score(X_test, y_test),interval])
+				elif reg == 'post':
+					best_grid_post.append([clf,clf.score(X_test, y_test),interval])
+
+
+
+	return
+
+def do_cluster_regression(eq_df, welldf, eps_s, lock ,cv = 5, standardization = None):
+
+	global best_grid_prior
+	global best_grid_post
+
+	# Filter by time
+	welldf_prior = welldf[welldf.year < 2010]
+	welldf_prior.reset_index(inplace=True)
+	welldf_post = welldf[welldf.year >= 2010]
+	welldf_post.reset_index(inplace=True)
+
+	for eps in eps_s:
+
+		X_prior = []
+		X_post = []
+		Y_prior = []
+		Y_post = [] 
+		total_prior = []
+		total_post = []
+
+		logging.debug('eps {} from batch {}, standardization method: {}'\
+		.format(eps, eps_s,standardization))
+
+
+		# DO THIS FOR PRIOR
+
+		# find the list of clusters
+		col_name = 'cluster_' + 'prior' + '_eps_' + str(eps)
+		clusters = list(set(eq_df[col_name].values) - set([-10]))
+		# this is for the clusters that are not noise
+		for cluster_id in clusters:
+			# get mask for the cluster_id
+			mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
+			Y_prior_append = get_hours_between(  eq_df[ mask] )   
+			for y in Y_prior_append:
+				Y_prior.append(y)
+
+			# find the centroid of the cluster
+			centroid = cluster_centroid(eq_df, mask)
+			# find the largest radius = largest distance between centroid and points
+			# in the cluster
+			radius = get_furthest_distance(eq_df, mask, centroid)
+			# find the numbe of wells and volume within this radius
+			X_prior_append=get_cluster_nwells_volume(welldf_prior, centroid, radius)
+			total_prior.append(X_prior_append)
+			for i in range(len(Y_prior_append)):			
+					X_prior.append(X_prior_append)	
+
+		# add the interarrival for the events classified as noise
+		cluster_id = -1
+		# ------
+		mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
+		Y_prior_append = get_hours_between(  eq_df[ mask] )   
+		for y in Y_prior_append:
+			Y_prior.append(y)
+
+		# find the volume
+		total_prior = np.array(total_prior)
+		X_prior_append=[welldf_prior.count().values[0] - sum(total_prior[:,0]) , welldf_prior.volume.sum() - sum(total_prior[:,1]) ]
+		for i in range(len(Y_prior_append)):			
+				X_prior.append(X_prior_append)	
+
+		#------
+
+		# DO THIS FOR POST
+
+		# find the list of clusters
+		col_name = 'cluster_' + 'post' + '_eps_' + str(eps)
+		clusters = list(set(eq_df[col_name].values) - set([-10]))
+		for cluster_id in clusters:
+			# get mask for the cluster_id
+			mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
+			Y_post_append = get_hours_between( eq_df[ mask] )
+			for y in Y_post_append:
+				Y_post.append(y)
+
+			# find the centroid of the cluster
+			centroid = cluster_centroid(eq_df, mask)
+			# find the largest radius = largest distance between centroid and points
+			# in the cluster
+			radius = get_furthest_distance(eq_df, mask, centroid)
+			# find the numbe of wells and volume within this radius
+			X_post_append=get_cluster_nwells_volume(welldf_post, centroid, radius) 
+			total_post.append(X_post_append)
+			for i in range(len(Y_post_append)):
+				X_post.append(X_post_append)
+
+		# add the interarrival for the events classified as noise
+		cluster_id = -1
+		# ------
+		mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
+		Y_post_append = get_hours_between(  eq_df[ mask] )   
+		for y in Y_post_append:
+			Y_post.append(y)
+
+		# find the volume
+		total_post = np.array(total_post)
+		X_post_append=[welldf_post.count().values[0] - sum(total_post[:,0]) , welldf_post.volume.sum() - sum(total_post[:,1]) ]
+		for i in range(len(Y_post_append)):			
+				X_post.append(X_post_append)	
+
+		#------
+
+		X_prior = np.array(X_prior,dtype=np.float64)
+		X_post = np.array(X_post,dtype=np.float64)		
+
+		# ------------------------------------------
+		# DOING THE REGRESSION
+		# ------------------------------------------
+		# logging.debug(' For {} cells, Total number of quakes: prior {}, post {}'\
+		# 		.format(len(locdict.keys()),sum(X_prior[:,0]), sum(X_post[:,0]) ))		
+
+		reg_for = ['prior', 'post']
+		for reg in reg_for:
+			if reg == 'prior':
+				X = X_prior
+				Y = Y_prior
+			elif reg == 'post':
+				X = X_post
+				Y = Y_post
+
 
 			# --------------------
 			# SPLIT INTO TRAIN AND TEST
@@ -237,231 +373,21 @@ def do_grid_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization =
 			# --------------------
 			# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
 			# AND ORDINARY LEAST SQUARE REGRESSION
-			# no need for Lasso because only 2 features
 			# --------------------
-
-
-			# # Using Ordinary Least Square Regression
-			# clf = linear_model.LinearRegression()
-			# clf.fit(X_train, y_train)
-			# logging.debug('For {} cells the score is {}'.format(len(locdict.keys()),clf.score(X_test, y_test)))
-
-
-			# # Using Ridge Regression and cross-validation
-			# # doing the selection manually
-			# # uncomment this part to check it matches the next paragraph
-			# clf = linear_model.Ridge()
-			# parameters = {'alpha': [0.1, 0.5]}
-			# gs = GridSearchCV(clf, param_grid=parameters, cv=5)
-			# gs.fit(X_train, y_train)
-
-			# best = gs.best_estimator_
-			# best.fit(X_train, y_train)
-			# logging.debug('For {} cells the score of manual Ridge is {}'.format(len(locdict.keys()),best.score(X_test, y_test)))
-
-
 
 			# Using Ridge Regression with built-in cross validation
 			# of the alpha parameters
 			# note that alpha = 0 corresponds to the Ordinary Least Square Regression
-			clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv = cv)
-			clf.fit(X_train, y_train)
+			clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv =cv)
 
-			logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
-				.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+			clf.fit(X_train, y_train)
+			logging.debug('{}: For eps = {}, score : {}'.format(reg,eps,clf.score(X_test, y_test)))
 
 			with lock:
 				if reg == 'prior': 
-					best_grid_prior.append([clf,clf.score(X_test, y_test),interval])
+					best_grid_prior.append([clf,clf.score(X_test, y_test), eps])
 				elif reg == 'post':
-					best_grid_post.append([clf,clf.score(X_test, y_test),interval])
-
-
-
-	return
-
-def do_cluster_regression(eq_df, welldf, eps, lock ,cv = 5, standardization = None):
-
-	global best_grid_prior
-	global best_grid_post
-
-	# Filter by time
-	welldf_prior = welldf[welldf.year < 2010]
-	welldf_prior.reset_index(inplace=True)
-	welldf_post = welldf[welldf.year >= 2010]
-	welldf_post.reset_index(inplace=True)
-
-
-
-	X_prior = []
-	X_post = []
-	Y_prior = []
-	Y_post = [] 
-	total_prior = []
-	total_post = []
-
-
-	# DO THIS FOR PRIOR
-
-	# find the list of clusters
-	col_name = 'cluster_' + 'prior' + '_eps_' + str(eps)
-	clusters = list(set(eq_df[col_name].values) - set([-10]))
-	print 'clusters prior', clusters
-	# this is for the clusters that are not noise
-	for cluster_id in clusters:
-		# get mask for the cluster_id
-		mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
-		Y_prior_append = get_hours_between(  eq_df[ mask] )   
-		for y in Y_prior_append:
-			Y_prior.append(y)
-
-		# find the centroid of the cluster
-		centroid = cluster_centroid(eq_df, mask)
-		# find the largest radius = largest distance between centroid and points
-		# in the cluster
-		radius = get_furthest_distance(eq_df, mask, centroid)
-		# find the numbe of wells and volume within this radius
-		X_prior_append=get_cluster_nwells_volume(welldf_prior, centroid, radius)
-		total_prior.append(X_prior_append)
-		for i in range(len(Y_prior_append)):			
-				X_prior.append(X_prior_append)	
-
-	# add the interarrival for the events classified as noise
-	cluster_id = -1
-	# ------
-	mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
-	Y_prior_append = get_hours_between(  eq_df[ mask] )   
-	for y in Y_prior_append:
-		Y_prior.append(y)
-
-	# find the volume
-	total_prior = np.array(total_prior)
-	X_prior_append=[welldf_prior.count().values[0] - sum(total_prior[:,0]) , welldf_prior.volume.sum() - sum(total_prior[:,1]) ]
-	for i in range(len(Y_prior_append)):			
-			X_prior.append(X_prior_append)	
-
-	#------
-
-	# DO THIS FOR POST
-
-	# find the list of clusters
-	col_name = 'cluster_' + 'post' + '_eps_' + str(eps)
-	clusters = list(set(eq_df[col_name].values) - set([-10]))
-	print 'clusters post', clusters
-	for cluster_id in clusters:
-		# get mask for the cluster_id
-		mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
-		Y_post_append = get_hours_between( eq_df[ mask] )
-		for y in Y_post_append:
-			Y_post.append(y)
-
-		# find the centroid of the cluster
-		centroid = cluster_centroid(eq_df, mask)
-		# find the largest radius = largest distance between centroid and points
-		# in the cluster
-		radius = get_furthest_distance(eq_df, mask, centroid)
-		# find the numbe of wells and volume within this radius
-		X_post_append=get_cluster_nwells_volume(welldf_post, centroid, radius) 
-		total_post.append(X_post_append)
-		for i in range(len(Y_post_append)):
-			X_post.append(X_post_append)
-
-	# add the interarrival for the events classified as noise
-	cluster_id = -1
-	# ------
-	mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
-	Y_post_append = get_hours_between(  eq_df[ mask] )   
-	for y in Y_post_append:
-		Y_post.append(y)
-
-	# find the volume
-	total_post = np.array(total_post)
-	X_post_append=[welldf_post.count().values[0] - sum(total_post[:,0]) , welldf_post.volume.sum() - sum(total_post[:,1]) ]
-	for i in range(len(Y_post_append)):			
-			X_post.append(X_post_append)	
-
-	#------
-
-	X_prior = np.array(X_prior,dtype=np.float64)
-	X_post = np.array(X_post,dtype=np.float64)		
-
-	print '------------------------------------------------'
-	print '------------------------------------------------'
-	print('Length of Y_prior is {}'.format( len(Y_prior  )))
-	print('Length of X_prior is {}'.format( len(X_prior  )))
-	print '------------------------------------------------'
-	print '------------------------------------------------'
-	print('Length of Y_post is {}'.format( len(Y_post  )))
-	print('Length of X_post is {}'.format( len(X_post  )))
-	print '------------------------------------------------'
-	print '------------------------------------------------'
-	# ------------------------------------------
-	# DOING THE REGRESSION
-	# ------------------------------------------
-	# logging.debug(' For {} cells, Total number of quakes: prior {}, post {}'\
-	# 		.format(len(locdict.keys()),sum(X_prior[:,0]), sum(X_post[:,0]) ))		
-
-	reg_for = ['prior', 'post']
-	for reg in reg_for:
-		if reg == 'prior':
-			X = X_prior
-			Y = Y_prior
-		elif reg == 'post':
-			X = X_post
-			Y = Y_post
-
-
-		# --------------------
-		# SPLIT INTO TRAIN AND TEST
-		# --------------------
-
-		# Split in train - test 
-		X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.33, random_state=42)
-
-
-		# --------------------
-		# STANDARDIZATION OF THE DATA -- SCALING
-		# --------------------
-
-		if standardization == 'scaler':
-
-			scaler = preprocessing.StandardScaler().fit(X_train)
-			X_train = scaler.fit_transform(X_train)
-			X_test = scaler.transform(X_test)
-			y_train = scaler.fit_transform(y_train)
-			y_test = scaler.transform(y_test)
-
-		elif standardization == 'MinMaxScaler':
-			min_max_scaler = preprocessing.MinMaxScaler()
-			X_train = min_max_scaler.fit_transform(X_train)
-			X_test = min_max_scaler.transform(X_test)
-			y_train = min_max_scaler.fit_transform(y_train)
-			y_test = min_max_scaler.transform(y_test)
-		else:
-			pass
-
-
-		# --------------------
-		# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
-		# AND ORDINARY LEAST SQUARE REGRESSION
-		# --------------------
-
-		# Using Ridge Regression with built-in cross validation
-		# of the alpha parameters
-		# note that alpha = 0 corresponds to the Ordinary Least Square Regression
-		clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv =cv)
-		# clf = linear_model.LinearRegression()
-		clf.fit(X_train, y_train)
-		print 'score', clf.score(X_test, y_test)
-
-		# logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
-		# 	.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
-
-		with lock:
-			if reg == 'prior': 
-				best_grid_prior.append([clf,clf.score(X_test, y_test), eps])
-			elif reg == 'post':
-				best_grid_post.append([clf,clf.score(X_test, y_test),eps])		
+					best_grid_post.append([clf,clf.score(X_test, y_test),eps])		
 
 
 	return
@@ -482,8 +408,6 @@ def do_grid_interarrival_regression(eq_df, welldf, intervals, lock ,cv = 5, stan
 		welldf_post = welldf[welldf.year >= 2010]
 		welldf_post.reset_index(inplace=True)
 		eq_df_post = eq_df[eq_df.year >= 2010]
-
-
 
 
 		X_prior = []
@@ -556,48 +480,8 @@ def do_grid_interarrival_regression(eq_df, welldf, intervals, lock ,cv = 5, stan
 				X = X_post
 				Y = Y_post
 
+			clf, X_test, y_test = do_regression(X,Y,reg,locdict,lock, cv ,standardization)
 
-			# --------------------
-			# SPLIT INTO TRAIN AND TEST
-			# --------------------
-
-			# Split in train - test 
-			X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.33, random_state=42)
-
-
-			# --------------------
-			# STANDARDIZATION OF THE DATA -- SCALING
-			# --------------------
-
-			if standardization == 'scaler':
-
-				scaler = preprocessing.StandardScaler().fit(X_train)
-				X_train = scaler.fit_transform(X_train)
-				X_test = scaler.transform(X_test)
-				y_train = scaler.fit_transform(y_train)
-				y_test = scaler.transform(y_test)
-
-			elif standardization == 'MinMaxScaler':
-				min_max_scaler = preprocessing.MinMaxScaler()
-				X_train = min_max_scaler.fit_transform(X_train)
-				X_test = min_max_scaler.transform(X_test)
-				y_train = min_max_scaler.fit_transform(y_train)
-				y_test = min_max_scaler.transform(y_test)
-			else:
-				pass
-
-
-			# --------------------
-			# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
-			# AND ORDINARY LEAST SQUARE REGRESSION
-			# --------------------
-
-			# Using Ridge Regression with built-in cross validation
-			# of the alpha parameters
-			# note that alpha = 0 corresponds to the Ordinary Least Square Regression
-			clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv =cv)
-			# clf = linear_model.LinearRegression()
-			clf.fit(X_train, y_train)
 
 			logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
 				.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
@@ -612,6 +496,117 @@ def do_grid_interarrival_regression(eq_df, welldf, intervals, lock ,cv = 5, stan
 	return
 
 
+def do_regression(X,Y,reg,locdict,lock,cv, standardization):
+
+	# --------------------
+	# SPLIT INTO TRAIN AND TEST
+	# --------------------
+
+	# Split in train - test 
+	X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.33, random_state=42)
+
+
+	# --------------------
+	# STANDARDIZATION OF THE DATA -- SCALING
+	# --------------------
+
+	if standardization == 'scaler':
+
+		scaler = preprocessing.StandardScaler().fit(X_train)
+		X_train = scaler.fit_transform(X_train)
+		X_test = scaler.transform(X_test)
+		y_train = scaler.fit_transform(y_train)
+		y_test = scaler.transform(y_test)
+
+	elif standardization == 'MinMaxScaler':
+		min_max_scaler = preprocessing.MinMaxScaler()
+		X_train = min_max_scaler.fit_transform(X_train)
+		X_test = min_max_scaler.transform(X_test)
+		y_train = min_max_scaler.fit_transform(y_train)
+		y_test = min_max_scaler.transform(y_test)
+	else:
+		pass
+
+
+	# --------------------
+	# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
+	# AND ORDINARY LEAST SQUARE REGRESSION
+	# no need for Lasso because only 2 features
+	# --------------------
+
+
+	# # Using Ordinary Least Square Regression
+	# clf = linear_model.LinearRegression()
+	# clf.fit(X_train, y_train)
+	# logging.debug('For {} cells the score is {}'.format(len(locdict.keys()),clf.score(X_test, y_test)))
+
+
+	# # Using Ridge Regression and cross-validation
+	# # doing the selection manually
+	# # uncomment this part to check it matches the next paragraph
+	# clf = linear_model.Ridge()
+	# parameters = {'alpha': [0.1, 0.5]}
+	# gs = GridSearchCV(clf, param_grid=parameters, cv=5)
+	# gs.fit(X_train, y_train)
+
+	# best = gs.best_estimator_
+	# best.fit(X_train, y_train)
+	# logging.debug('For {} cells the score of manual Ridge is {}'.format(len(locdict.keys()),best.score(X_test, y_test)))
+
+
+
+	# Using Ridge Regression with built-in cross validation
+	# of the alpha parameters
+	# note that alpha = 0 corresponds to the Ordinary Least Square Regression
+	clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv = cv)
+	clf.fit(X_train, y_train)
+
+
+	return clf, X_test, y_test
+
+def split_in_batch(intervals):
+
+    # split randomely the letters in batch for the various threads
+	all_batch = []
+	size_batch = len(intervals) / num_threads
+	for i in range(num_threads-1):
+		batch_per_threads = random.sample(intervals,size_batch)
+		all_batch.append(batch_per_threads)
+		# new set
+		intervals  = list(set(intervals) - set(batch_per_threads))
+	# now get the rest
+	all_batch.append(intervals)
+	print('look at all_batch {}'.format(all_batch))
+
+	return all_batch
+
+def print_best_score(type):
+
+	best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
+	best_score_prior = np.array(best_score_prior)
+	best_index_prior = np.where(best_score_prior[:,0] == max(best_score_prior[:,0]))[0][0]
+	print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
+	print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
+	print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
+	if type == 'grid':
+		print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
+	elif type == 'cluster':
+		print('Best eps <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
+
+
+
+	best_score_post = [[c[1],c[2]] for c in best_grid_post]
+	best_score_post = np.array(best_score_post)
+	best_index_post = np.where(best_score_post[:,0] == max(best_score_post[:,0]))[0][0]
+	print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
+	print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
+	print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
+	if type == 'grid':
+		print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
+	elif type == 'cluster':
+		print('Best eps >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
+ 
+	return
 
 if __name__ == '__main__':
 	
@@ -630,6 +625,13 @@ if __name__ == '__main__':
 	# Load the wells dataframe.  
 	welldf = pd.DataFrame.from_csv('tempdata/wells_data.csv')
 
+
+	best_grid_prior = []
+	best_grid_post = []
+
+	# define the number of threads
+	num_threads = 4
+
 	# ------------------------------------------
 	# GRID REGRESSION
 	# ------------------------------------------	
@@ -638,23 +640,9 @@ if __name__ == '__main__':
 	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
 	# # intervals = [0.8,0.9, 1.0, 1.5]
 
-	# # define the number of threads
-	# num_threads = 4
 
  #    # split randomely the letters in batch for the various threads
-	# all_batch = []
-	# size_batch = len(intervals) / num_threads
-	# for i in range(num_threads-1):
-	# 	batch_per_threads = random.sample(intervals,size_batch)
-	# 	all_batch.append(batch_per_threads)
-	# 	# new set
-	# 	intervals  = list(set(intervals) - set(batch_per_threads))
-	# # now get the rest
-	# all_batch.append(intervals)
-	# print('look at all_batch {}'.format(all_batch))
-
-	# best_grid_prior = []
-	# best_grid_post = []
+	# all_batch = split_in_batch(intervals)
 
 	# # Vary the standardization and find optimum
 	# for standardization in ['None','scaler','MinMaxScaler'] :
@@ -671,25 +659,7 @@ if __name__ == '__main__':
 	# 	map(lambda t:t.start(), threads)
 	# 	map(lambda t: t.join(), threads)
 
-
-	# best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
-	# best_score_prior = np.array(best_score_prior)
-	# best_index_prior = np.where(best_score_prior[:,0] == max(best_score_prior[:,0]))[0][0]
-	# print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
-	# print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
-	# print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
-	# print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
-
-
-	# best_score_post = [[c[1],c[2]] for c in best_grid_post]
-	# best_score_post = np.array(best_score_post)
-	# best_index_post = np.where(best_score_post[:,0] == max(best_score_post[:,0]))[0][0]
-	# print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
-	# print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
-	# print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
-	# print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
-
-
+	# print_best_score('grid')
 
 
 	# ------------------------------------------
@@ -697,46 +667,12 @@ if __name__ == '__main__':
 	# ------------------------------------------ 
 
 
-	# lock = threading.Lock()
 
-	# best_grid_prior = []
-	# best_grid_post = []
+	eps_batch = range(5,30)
+	# eps_batch = [5,7,9,11]
 
-	# # reconstruct the column name
-	# for eps in range(5,30):
-	# 	do_cluster_regression(eq_df, welldf, eps, lock)
-
-
-	# ------------------------------------------
-	# GRID 1/INTERARRIVAL REGRESSION
-	# ------------------------------------------ 
-
-	# reconstruct the column name
-	# intervals = [0.7]
-	# do_grid_interarrival_regression(eq_df, welldf, intervals, lock)
-
-
-	# define the intervals
-	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
-	intervals = [0.8,0.9, 1.0, 1.5]
-
-	# define the number of threads
-	num_threads = 4
-
-    # split randomely the letters in batch for the various threads
-	all_batch = []
-	size_batch = len(intervals) / num_threads
-	for i in range(num_threads-1):
-		batch_per_threads = random.sample(intervals,size_batch)
-		all_batch.append(batch_per_threads)
-		# new set
-		intervals  = list(set(intervals) - set(batch_per_threads))
-	# now get the rest
-	all_batch.append(intervals)
-	print('look at all_batch {}'.format(all_batch))
-
-	best_grid_prior = []
-	best_grid_post = []
+    # split randomely the eps in batch for the various threads
+	all_batch = split_in_batch(eps_batch)
 
 	# Vary the standardization and find optimum
 	for standardization in ['None','scaler','MinMaxScaler'] :
@@ -744,30 +680,44 @@ if __name__ == '__main__':
 		threads = []
 		lock = threading.Lock()
 		for thread_id in range(num_threads):
-			interval = all_batch[thread_id]
-			t = threading.Thread(target = do_grid_interarrival_regression, \
-				args = (eq_df, welldf, interval, lock ,5,standardization))
+			eps_s = all_batch[thread_id]
+			t = threading.Thread(target = do_cluster_regression, \
+				args = (eq_df, welldf, eps_s, lock ,5, standardization))
 			threads.append(t)
 
 		print 'Starting multithreading'
 		map(lambda t:t.start(), threads)
 		map(lambda t: t.join(), threads)
 
-
-	best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
-	best_score_prior = np.array(best_score_prior)
-	best_index_prior = np.where(best_score_prior[:,0] == max(best_score_prior[:,0]))[0][0]
-	print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
-	print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
-	print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
-	print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
+	print_best_score('cluster')
 
 
-	best_score_post = [[c[1],c[2]] for c in best_grid_post]
-	best_score_post = np.array(best_score_post)
-	best_index_post = np.where(best_score_post[:,0] == max(best_score_post[:,0]))[0][0]
-	print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
-	print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
-	print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
-	print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
+	# ------------------------------------------
+	# GRID 1/INTERARRIVAL REGRESSION
+	# ------------------------------------------ 
+
+	# # define the intervals
+	# # intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
+	# intervals = [0.8,0.9, 1.0, 1.5]
+
+
+ #    # split randomely the letters in batch for the various threads
+	# all_batch = split_in_batch(intervals)
+
+	# # Vary the standardization and find optimum
+	# for standardization in ['None','scaler','MinMaxScaler'] :
+	# 	# parallelize the loop of interval
+	# 	threads = []
+	# 	lock = threading.Lock()
+	# 	for thread_id in range(num_threads):
+	# 		interval = all_batch[thread_id]
+	# 		t = threading.Thread(target = do_grid_interarrival_regression, \
+	# 			args = (eq_df, welldf, interval, lock ,5,standardization))
+	# 		threads.append(t)
+
+	# 	print 'Starting multithreading'
+	# 	map(lambda t:t.start(), threads)
+	# 	map(lambda t: t.join(), threads)
+
+	# print_best_score('grid')
 
