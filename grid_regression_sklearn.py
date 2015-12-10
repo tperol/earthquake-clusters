@@ -297,13 +297,17 @@ def do_cluster_regression(eq_df, welldf, eps, lock ,cv = 5, standardization = No
 	X_post = []
 	Y_prior = []
 	Y_post = [] 
+	total_prior = []
+	total_post = []
 
 
 	# DO THIS FOR PRIOR
 
 	# find the list of clusters
 	col_name = 'cluster_' + 'prior' + '_eps_' + str(eps)
-	clusters = list(set(eq_df[col_name].values) - set([-10, -1]))
+	clusters = list(set(eq_df[col_name].values) - set([-10]))
+	print 'clusters prior', clusters
+	# this is for the clusters that are not noise
 	for cluster_id in clusters:
 		# get mask for the cluster_id
 		mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
@@ -318,14 +322,32 @@ def do_cluster_regression(eq_df, welldf, eps, lock ,cv = 5, standardization = No
 		radius = get_furthest_distance(eq_df, mask, centroid)
 		# find the numbe of wells and volume within this radius
 		X_prior_append=get_cluster_nwells_volume(welldf_prior, centroid, radius)
+		total_prior.append(X_prior_append)
 		for i in range(len(Y_prior_append)):			
 				X_prior.append(X_prior_append)	
+
+	# add the interarrival for the events classified as noise
+	cluster_id = -1
+	# ------
+	mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
+	Y_prior_append = get_hours_between(  eq_df[ mask] )   
+	for y in Y_prior_append:
+		Y_prior.append(y)
+
+	# find the volume
+	total_prior = np.array(total_prior)
+	X_prior_append=[welldf_prior.count().values[0] - sum(total_prior[:,0]) , welldf_prior.volume.sum() - sum(total_prior[:,1]) ]
+	for i in range(len(Y_prior_append)):			
+			X_prior.append(X_prior_append)	
+
+	#------
 
 	# DO THIS FOR POST
 
 	# find the list of clusters
 	col_name = 'cluster_' + 'post' + '_eps_' + str(eps)
-	clusters = list(set(eq_df[col_name].values) - set([-10, -1]))
+	clusters = list(set(eq_df[col_name].values) - set([-10]))
+	print 'clusters post', clusters
 	for cluster_id in clusters:
 		# get mask for the cluster_id
 		mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
@@ -340,11 +362,25 @@ def do_cluster_regression(eq_df, welldf, eps, lock ,cv = 5, standardization = No
 		radius = get_furthest_distance(eq_df, mask, centroid)
 		# find the numbe of wells and volume within this radius
 		X_post_append=get_cluster_nwells_volume(welldf_post, centroid, radius) 
-
+		total_post.append(X_post_append)
 		for i in range(len(Y_post_append)):
 			X_post.append(X_post_append)
 
+	# add the interarrival for the events classified as noise
+	cluster_id = -1
+	# ------
+	mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
+	Y_post_append = get_hours_between(  eq_df[ mask] )   
+	for y in Y_post_append:
+		Y_post.append(y)
 
+	# find the volume
+	total_post = np.array(total_post)
+	X_post_append=[welldf_post.count().values[0] - sum(total_post[:,0]) , welldf_post.volume.sum() - sum(total_post[:,1]) ]
+	for i in range(len(Y_post_append)):			
+			X_post.append(X_post_append)	
+
+	#------
 
 	X_prior = np.array(X_prior,dtype=np.float64)
 	X_post = np.array(X_post,dtype=np.float64)		
