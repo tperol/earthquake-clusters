@@ -728,8 +728,8 @@ if __name__ == '__main__':
 	# initialize the dictionary in which we store the results
 	results_dic= {}
 
-	# standardization_vec = ['None','scaler','MinMaxScaler']
-	standardization_vec = ['None']
+	standardization_vec = ['None','scaler','MinMaxScaler']
+	# standardization_vec = ['None']
 
 	# ------------------------------------------
 	# GRID REGRESSION
@@ -739,8 +739,8 @@ if __name__ == '__main__':
 	best_grid_post = []	
 
 	# define the intervals
-	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
-	intervals = [0.8,0.9, 1.0, 1.5]
+	intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
+	# intervals = [0.8,0.9, 1.0, 1.5]
 
 
     # split randomely the letters in batch for the various threads
@@ -774,8 +774,8 @@ if __name__ == '__main__':
 	best_grid_prior = []
 	best_grid_post = []
 
-	# eps_batch = range(5,30)
-	eps_batch = [5,7,9,11]
+	eps_batch = range(5,30)
+	# eps_batch = [5,7,9,11]
 
     # split randomely the eps in batch for the various threads
 	all_batch = split_in_batch(eps_batch)
@@ -807,8 +807,8 @@ if __name__ == '__main__':
 	best_grid_post = []
 
 	# define the intervals
-	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
-	intervals = [0.8,0.9, 1.0, 1.5]
+	intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
+	# intervals = [0.8,0.9, 1.0, 1.5]
 
 
     # split randomely the letters in batch for the various threads
