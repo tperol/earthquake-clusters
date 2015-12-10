@@ -31,6 +31,8 @@ logging.basicConfig(level=logging.DEBUG,
 # library for multithreading
 import threading
 
+# for time split
+import datetime
 
 
 # Default plotting
@@ -41,39 +43,110 @@ from sklearn import linear_model
 from sklearn.cross_validation import train_test_split
 from sklearn.grid_search import GridSearchCV
 from sklearn import preprocessing
+from geopy.distance import great_circle
 
 
-def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
+def get_hours_between(df):
+    dates=[]
+    origintimes = df.origintime.values
+    for date in origintimes:
+        year, month, day = date.split('-')
+        day, hour = day.split(' ')
+        hour, minute, second = hour.split(':')
+        if len(second.split('.'))==2:
+            second, microsecond = second.split('.')
+        elif len(second.split('.'))==1:
+            microsecond=0
+        dates.append(datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), 
+                                       int(second), int(microsecond)))
+    dates=sorted(dates)
+    intertimes =[]
+    for i in range(1,len(dates)):
+        delta = dates[i] - dates[i-1]
+        delta = delta.total_seconds()/3600
+        intertimes .append(delta)
+    return intertimes 
+
+
+def get_furthest_distance(eq_df, mask, centroid):
+	furthest_point = None
+	furthest_dist = None
+
+	for point0, point1 in zip(eq_df[mask].latitude,eq_df[mask].longitude):
+		point = (point0, point1)
+		dist = great_circle( centroid, point ).km
+		if (furthest_dist is None) or (dist > furthest_dist):
+			furthest_dist = dist
+			furthest_point = point
+	return furthest_dist 
+
+def cluster_centroid(eq_df, mask):
+	n = eq_df[ mask].shape[0]
+	sum_lon = eq_df[ mask].longitude.sum()
+	sum_lat = eq_df[mask].latitude.sum()
+	return (sum_lat/n, sum_lon/n )
+
+def get_cluster_nwells_volume(welldf, centroid, radius):
+	
+	n_wells = 0
+	volume = 0
+
+	for (i, coords) in enumerate(zip(welldf.latitude,welldf.longitude)):
+		if great_circle((coords[0],coords[1]),centroid ) < radius:
+			n_wells += 1
+			volume += welldf.loc[i, 'volume']
+
+	return [n_wells, volume]
+
+
+def mask_cluster(df, period, eps,  cluster_id): 
+
+	# reconstruct the column name
+	col_name = 'cluster_' + period + '_eps_' + str(eps)
+
+	mask_cluster = df[ col_name  ] == cluster_id
+
+	return mask_cluster
+
+def mask_region(df, region):
+	mask_region = (df['latitude'] < region[0][1]) \
+	        & (df['latitude'] >= region[0][0]) \
+	        & (df['longitude'] < region[1][1]) \
+	        & (df['longitude'] >= region[1][0])
+	return mask_region
+
+def partition_state(interval):
+
+	# ------------------------------------------
+	# PARTITION THE MAP INTO CELLS = CREATE THE GRID
+	# ------------------------------------------
+
+	# Make ranges 
+	# Since all earthquakes are in Oklahoma we partition roughly
+	# using the upper bound of the state limit
+	xregions1 = np.arange(33.5, 37.0, interval)
+	xregions2 = np.arange(33.5 + interval, 37.0 + interval, interval) 
+	xregions = zip(xregions1, xregions2)
+	yregions1 = np.arange(-103.0,-94. , interval) 
+	yregions2 = np.arange(-103.0 + interval ,-94.0 + interval, interval)
+	yregions = zip(yregions1, yregions2)
+
+	# Create a dictionary with keys = (slice in long, slice in latitude)
+	# value = number of the grid cell
+	regions = it.product(xregions,yregions)
+	locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
+
+	return locdict
+
+def do_grid_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
 
 	global best_grid_prior
 	global best_grid_post
 
 	for interval in intervals:
 
-		# ------------------------------------------
-		# PARTITION THE MAP INTO CELLS = CREATE THE GRID
-		# ------------------------------------------
-
-		# Make ranges
-		xregions1 = np.arange(33.5, 37., interval)
-		xregions2 = np.arange(34., 37.5, interval) 
-		xregions = zip(xregions1, xregions2)
-		yregions1 = np.arange(-103.,-94. , interval) 
-		yregions2 = np.arange(-102.5 ,-93.5, interval)
-		yregions = zip(yregions1, yregions2)
-
-		# Create a dictionary with keys = (slice in long, slice in latitude)
-		# value = number of the grid cell
-		regions = it.product(xregions,yregions)
-		locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
-
-
-		def mask_region(df, region):
-			mask_region = (df['latitude'] < region[0][1]) \
-			        & (df['latitude'] >= region[0][0]) \
-			        & (df['longitude'] < region[1][1]) \
-			        & (df['longitude'] >= region[1][0])
-			return mask_region
+		# Get dictionary for the partitioned state
+		locdict = partition_state(interval)
 
 		# Filter by time
 		eq_df_prior = eq_df[eq_df.year < 2010]
@@ -118,6 +191,8 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 		# ------------------------------------------
 		# DOING THE REGRESSION
 		# ------------------------------------------
+		# logging.debug(' For {} cells, Total number of quakes: prior {}, post {}'\
+		# 		.format(len(locdict.keys()),sum(X_prior[:,0]), sum(X_post[:,0]) ))		
 
 		reg_for = ['prior', 'post']
 		for reg in reg_for:
@@ -205,6 +280,156 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 
 	return
 
+def do_cluster_regression(eq_df, welldf, eps, lock ,cv = 5, standardization = None):
+
+	global best_grid_prior
+	global best_grid_post
+
+	# Filter by time
+	welldf_prior = welldf[welldf.year < 2010]
+	welldf_prior.reset_index(inplace=True)
+	welldf_post = welldf[welldf.year >= 2010]
+	welldf_post.reset_index(inplace=True)
+
+
+
+	X_prior = []
+	X_post = []
+	Y_prior = []
+	Y_post = [] 
+
+
+	# DO THIS FOR PRIOR
+
+	# find the list of clusters
+	col_name = 'cluster_' + 'prior' + '_eps_' + str(eps)
+	clusters = list(set(eq_df[col_name].values) - set([-10, -1]))
+	for cluster_id in clusters:
+		# get mask for the cluster_id
+		mask = mask_cluster(eq_df, 'prior', eps,  cluster_id)
+		Y_prior_append = get_hours_between(  eq_df[ mask] )   
+		for y in Y_prior_append:
+			Y_prior.append(y)
+
+		# find the centroid of the cluster
+		centroid = cluster_centroid(eq_df, mask)
+		# find the largest radius = largest distance between centroid and points
+		# in the cluster
+		radius = get_furthest_distance(eq_df, mask, centroid)
+		# find the numbe of wells and volume within this radius
+		X_prior_append=get_cluster_nwells_volume(welldf_prior, centroid, radius)
+		for i in range(len(Y_prior_append)):			
+				X_prior.append(X_prior_append)	
+
+	# DO THIS FOR POST
+
+	# find the list of clusters
+	col_name = 'cluster_' + 'post' + '_eps_' + str(eps)
+	clusters = list(set(eq_df[col_name].values) - set([-10, -1]))
+	for cluster_id in clusters:
+		# get mask for the cluster_id
+		mask = mask_cluster(eq_df, 'post', eps,  cluster_id)
+		Y_post_append = get_hours_between( eq_df[ mask] )
+		for y in Y_post_append:
+			Y_post.append(y)
+
+		# find the centroid of the cluster
+		centroid = cluster_centroid(eq_df, mask)
+		# find the largest radius = largest distance between centroid and points
+		# in the cluster
+		radius = get_furthest_distance(eq_df, mask, centroid)
+		# find the numbe of wells and volume within this radius
+		X_post_append=get_cluster_nwells_volume(welldf_post, centroid, radius) 
+
+		for i in range(len(Y_post_append)):
+			X_post.append(X_post_append)
+
+
+
+	X_prior = np.array(X_prior,dtype=np.float64)
+	X_post = np.array(X_post,dtype=np.float64)		
+
+	print '------------------------------------------------'
+	print '------------------------------------------------'
+	print('Length of Y_prior is {}'.format( len(Y_prior  )))
+	print('Length of X_prior is {}'.format( len(X_prior  )))
+	print '------------------------------------------------'
+	print '------------------------------------------------'
+	print('Length of Y_post is {}'.format( len(Y_post  )))
+	print('Length of X_post is {}'.format( len(X_post  )))
+	print '------------------------------------------------'
+	print '------------------------------------------------'
+	# ------------------------------------------
+	# DOING THE REGRESSION
+	# ------------------------------------------
+	# logging.debug(' For {} cells, Total number of quakes: prior {}, post {}'\
+	# 		.format(len(locdict.keys()),sum(X_prior[:,0]), sum(X_post[:,0]) ))		
+
+	reg_for = ['prior', 'post']
+	for reg in reg_for:
+		if reg == 'prior':
+			X = X_prior
+			Y = Y_prior
+		elif reg == 'post':
+			X = X_post
+			Y = Y_post
+
+
+		# --------------------
+		# SPLIT INTO TRAIN AND TEST
+		# --------------------
+
+		# Split in train - test 
+		X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.33, random_state=42)
+
+
+		# --------------------
+		# STANDARDIZATION OF THE DATA -- SCALING
+		# --------------------
+
+		if standardization == 'scaler':
+
+			scaler = preprocessing.StandardScaler().fit(X_train)
+			X_train = scaler.fit_transform(X_train)
+			X_test = scaler.transform(X_test)
+			y_train = scaler.fit_transform(y_train)
+			y_test = scaler.transform(y_test)
+
+		elif standardization == 'MinMaxScaler':
+			min_max_scaler = preprocessing.MinMaxScaler()
+			X_train = min_max_scaler.fit_transform(X_train)
+			X_test = min_max_scaler.transform(X_test)
+			y_train = min_max_scaler.fit_transform(y_train)
+			y_test = min_max_scaler.transform(y_test)
+		else:
+			pass
+
+
+		# --------------------
+		# OPTIMIZE CLASSIFIER WITH RIDGE REGRESSION
+		# AND ORDINARY LEAST SQUARE REGRESSION
+		# --------------------
+
+		# Using Ridge Regression with built-in cross validation
+		# of the alpha parameters
+		# note that alpha = 0 corresponds to the Ordinary Least Square Regression
+		clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv =cv)
+		# clf = linear_model.LinearRegression()
+		clf.fit(X_train, y_train)
+		print 'score', clf.score(X_test, y_test)
+
+		# logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
+		# 	.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+
+		with lock:
+			if reg == 'prior': 
+				best_grid_prior.append([clf,clf.score(X_test, y_test), eps])
+			elif reg == 'post':
+				best_grid_post.append([clf,clf.score(X_test, y_test),eps])		
+
+
+	return
+
 
 if __name__ == '__main__':
 	
@@ -213,7 +438,7 @@ if __name__ == '__main__':
 	# LOAD DATAFRAMES
 	# ------------------------------------------
 	# Load the earthquakes datafram 
-	eq_df = pd.DataFrame.from_csv('./tempdata/earthquakes_catalog.csv',sep = '|')
+	eq_df = pd.DataFrame.from_csv('./tempdata/earthquakes_catalog_treated.csv',sep = '|')
 	# filter to keep magnitude >= 3
 	eq_df  = eq_df[eq_df.prefmag >= 3.0]
 	# for ease add column year
@@ -223,65 +448,81 @@ if __name__ == '__main__':
 	# Load the wells dataframe.  
 	welldf = pd.DataFrame.from_csv('tempdata/wells_data.csv')
 
-	# define the intervals
-	intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
-	# intervals = [0.8,0.9, 1.0, 1.5]
+	# ------------------------------------------
+	# GRID REGRESSION
+	# ------------------------------------------	
 
-	# define the number of threads
-	num_threads = 4
+	# # define the intervals
+	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
+	# # intervals = [0.8,0.9, 1.0, 1.5]
 
-    # split randomely the letters in batch for the various threads
-	all_batch = []
-	size_batch = len(intervals) / num_threads
-	for i in range(num_threads-1):
-		batch_per_threads = random.sample(intervals,size_batch)
-		all_batch.append(batch_per_threads)
-		# new set
-		intervals  = list(set(intervals) - set(batch_per_threads))
-	# now get the rest
-	all_batch.append(intervals)
-	print('look at all_batch {}'.format(all_batch))
+	# # define the number of threads
+	# num_threads = 4
+
+ #    # split randomely the letters in batch for the various threads
+	# all_batch = []
+	# size_batch = len(intervals) / num_threads
+	# for i in range(num_threads-1):
+	# 	batch_per_threads = random.sample(intervals,size_batch)
+	# 	all_batch.append(batch_per_threads)
+	# 	# new set
+	# 	intervals  = list(set(intervals) - set(batch_per_threads))
+	# # now get the rest
+	# all_batch.append(intervals)
+	# print('look at all_batch {}'.format(all_batch))
+
+	# best_grid_prior = []
+	# best_grid_post = []
+
+	# # Vary the standardization and find optimum
+	# for standardization in ['None','scaler','MinMaxScaler'] :
+	# 	# parallelize the loop of interval
+	# 	threads = []
+	# 	lock = threading.Lock()
+	# 	for thread_id in range(num_threads):
+	# 		interval = all_batch[thread_id]
+	# 		t = threading.Thread(target = do_grid_regression, \
+	# 			args = (eq_df, welldf, interval, lock ,5,standardization))
+	# 		threads.append(t)
+
+	# 	print 'Starting multithreading'
+	# 	map(lambda t:t.start(), threads)
+	# 	map(lambda t: t.join(), threads)
+
+
+	# best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
+	# best_score_prior = np.array(best_score_prior)
+	# best_index_prior = np.where(best_score_prior[:,0] == max(best_score_prior[:,0]))[0][0]
+	# print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
+	# print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
+	# print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
+	# print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
+
+
+	# best_score_post = [[c[1],c[2]] for c in best_grid_post]
+	# best_score_post = np.array(best_score_post)
+	# best_index_post = np.where(best_score_post[:,0] == max(best_score_post[:,0]))[0][0]
+	# print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
+	# print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
+	# print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
+	# print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
+
+
+
+
+	# ------------------------------------------
+	# CLUSTER INTERARRIVAL REGRESSION
+	# ------------------------------------------ 
+
+
+	lock = threading.Lock()
 
 	best_grid_prior = []
 	best_grid_post = []
 
-	# Vary the standardization and find optimum
-	for standardization in ['None','scaler','MinMaxScaler'] :
-		# parallelize the loop of interval
-		threads = []
-		lock = threading.Lock()
-		for thread_id in range(num_threads):
-			interval = all_batch[thread_id]
-			t = threading.Thread(target = do_regression, \
-				args = (eq_df, welldf, interval, lock ,5,standardization))
-			threads.append(t)
-
-		print 'Starting multithreading'
-		map(lambda t:t.start(), threads)
-		map(lambda t: t.join(), threads)
-
-
-	best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
-	best_score_prior = np.array(best_score_prior)
-	best_index_prior = np.where(best_score_prior[:,0] == max(best_score_prior[:,0]))[0][0]
-	print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
-	print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
-	print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
-	print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
-
-
-	best_score_post = [[c[1],c[2]] for c in best_grid_post]
-	best_score_post = np.array(best_score_post)
-	best_index_post = np.where(best_score_post[:,0] == max(best_score_post[:,0]))[0][0]
-	print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
-	print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
-	print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
-	print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
-
-
-
-
-
+	# reconstruct the column name
+	for eps in range(5,30):
+		do_cluster_regression(eq_df, welldf, eps, lock)
 
 
 
