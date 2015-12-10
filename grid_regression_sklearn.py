@@ -218,6 +218,91 @@ def do_grid_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization =
 
 	return
 
+
+def do_grid_regression_per_year(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
+
+	global best_grid_prior
+	global best_grid_post
+
+	for interval in intervals:
+
+		# Get dictionary for the partitioned state
+		locdict = partition_state(interval)
+
+		# Filter by time
+		eq_df_prior = eq_df[eq_df.year < 2010]
+		welldf_prior = welldf[welldf.year < 2010]
+		eq_df_post = eq_df[eq_df.year >= 2010]
+		welldf_post = welldf[welldf.year >= 2010]
+
+
+
+		X_prior = []
+		X_post = []
+		Y_prior = []
+		Y_post = [] 
+		### Start grid size loop here
+		for region in locdict.keys():
+
+			# generate dataframe for regression with data < 2010
+
+			# add the number of quakes per region
+			# logging.debug(eq_df_prior[mask_region(eq_df_prior,region)].groupby(['year']).head())		
+			Y_prior.append(eq_df_prior[mask_region(eq_df_prior,region)].count().values[0])
+			# add the number of wells per region
+			# add the total volume injected per region
+			# add them with into X_prior as [nb wells, volume]
+			X_prior.append([welldf_prior[mask_region(welldf_prior,region)].count().values[0]
+				, welldf_prior[mask_region(welldf_prior,region)].volume.sum()])
+
+			# generate dataframe for regression with data >= 2010
+
+			# add the number of quakes per region		
+			Y_post.append(eq_df_post[mask_region(eq_df_post,region)].count().values[0])	
+			# add the number of wells per region
+			# add the total volume injected per region
+			# add them with into X_post as [nb wells, volume]
+			X_post.append([welldf_post[mask_region(welldf_post,region)].count().values[0]
+				, welldf_post[mask_region(welldf_post,region)].volume.sum()])
+
+		X_prior = np.array(X_prior,dtype=np.float64)
+		X_post = np.array(X_post,dtype=np.float64)
+		Y_post = np.array(Y_post, dtype=np.float64).reshape(-1,1)
+		Y_prior = np.array(Y_prior, dtype = np.float64).reshape(-1,1)
+
+		# ------------------------------------------
+		# DOING THE REGRESSION
+		# ------------------------------------------
+		# logging.debug(' For {} cells, Total number of quakes: prior {}, post {}'\
+		# 		.format(len(locdict.keys()),sum(X_prior[:,0]), sum(X_post[:,0]) ))		
+
+		reg_for = ['prior', 'post']
+		for reg in reg_for:
+			if reg == 'prior':
+				X = X_prior
+				Y = Y_prior
+			elif reg == 'post':
+				X = X_post
+				Y = Y_post
+
+			clf, X_test, y_test  = do_regression(X,Y,reg,locdict,lock, cv ,standardization)	
+
+			logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
+				.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+
+			with lock:
+				if reg == 'prior': 
+					best_grid_prior.append([clf,clf.score(X_test, y_test),interval])
+				elif reg == 'post':
+					best_grid_post.append([clf,clf.score(X_test, y_test),interval])
+
+
+
+	return
+
+
+
+
 def do_cluster_regression(eq_df, welldf, eps_s, lock ,cv = 5, standardization = None):
 
 	global best_grid_prior
@@ -580,7 +665,7 @@ def split_in_batch(intervals):
 
 	return all_batch
 
-def print_best_score(type):
+def print_best_score_append_dictionary(reg_type):
 
 	best_score_prior = [[c[1],c[2]] for c in best_grid_prior]
 	best_score_prior = np.array(best_score_prior)
@@ -588,9 +673,14 @@ def print_best_score(type):
 	print('Best classifier <2010 is for alpha ={}'.format(best_grid_prior[best_index_prior][0].alpha_))
 	print('Coefs <2010 are ={}'.format(best_grid_prior[best_index_prior][0].coef_))
 	print('R^2 <2010 = {}'.format(best_grid_prior[best_index_prior][1]))
-	if type == 'grid':
+
+	prior_dic = {'coefs':best_grid_prior[best_index_prior][0].coef_ , 'r2': best_grid_prior[best_index_prior][1]}
+
+	if reg_type == 'grid':
+		prior_dic['interval'] = best_grid_prior[best_index_prior][2]
 		print('Best interval <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
-	elif type == 'cluster':
+	elif reg_type == 'cluster':
+		prior_dic['eps'] = best_grid_prior[best_index_prior][2]
 		print('Best eps <2010 is {}'.format(best_grid_prior[best_index_prior][2]))
 
 
@@ -601,13 +691,19 @@ def print_best_score(type):
 	print('Best classifier >= 2010 is for alpha ={}'.format(best_grid_post[best_index_post][0].alpha_))
 	print('Coefs >= 2010 are ={}'.format(best_grid_post[best_index_post][0].coef_))
 	print('R^2 >= 2010 = {}'.format(best_grid_post[best_index_post][1]))
-	if type == 'grid':
-		print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
-	elif type == 'cluster':
-		print('Best eps >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
- 
-	return
 
+	post_dic = {'coefs':best_grid_post[best_index_post][0].coef_ , 'r2': best_grid_post[best_index_post][1]}
+
+	if reg_type == 'grid':
+		post_dic['interval'] = best_grid_post[best_index_post][2]
+		print('Best interval >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
+	elif reg_type == 'cluster':
+		post_dic['eps'] = best_grid_post[best_index_post][2]
+		print('Best eps >= 2010 is {}'.format(best_grid_post[best_index_post][2]))
+
+
+	return prior_dic, post_dic
+ 
 if __name__ == '__main__':
 	
 
@@ -632,34 +728,43 @@ if __name__ == '__main__':
 	# define the number of threads
 	num_threads = 4
 
+	# initialize the dictionary in which we store the results
+	results_dic= {}
+
+	# standardization_vec = ['None','scaler','MinMaxScaler']
+	standardization_vec = ['None']
+
 	# ------------------------------------------
 	# GRID REGRESSION
 	# ------------------------------------------	
 
-	# # define the intervals
+	# define the intervals
 	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
-	# # intervals = [0.8,0.9, 1.0, 1.5]
+	intervals = [0.8,0.9, 1.0, 1.5]
 
 
- #    # split randomely the letters in batch for the various threads
-	# all_batch = split_in_batch(intervals)
+    # split randomely the letters in batch for the various threads
+	all_batch = split_in_batch(intervals)
 
-	# # Vary the standardization and find optimum
-	# for standardization in ['None','scaler','MinMaxScaler'] :
-	# 	# parallelize the loop of interval
-	# 	threads = []
-	# 	lock = threading.Lock()
-	# 	for thread_id in range(num_threads):
-	# 		interval = all_batch[thread_id]
-	# 		t = threading.Thread(target = do_grid_regression, \
-	# 			args = (eq_df, welldf, interval, lock ,5,standardization))
-	# 		threads.append(t)
+	# Vary the standardization and find optimum
+	for standardization in standardization_vec :
+		# parallelize the loop of interval
+		threads = []
+		lock = threading.Lock()
+		for thread_id in range(num_threads):
+			interval = all_batch[thread_id]
+			t = threading.Thread(target = do_grid_regression, \
+				args = (eq_df, welldf, interval, lock ,5,standardization))
+			threads.append(t)
 
-	# 	print 'Starting multithreading'
-	# 	map(lambda t:t.start(), threads)
-	# 	map(lambda t: t.join(), threads)
+		print 'Starting multithreading'
+		map(lambda t:t.start(), threads)
+		map(lambda t: t.join(), threads)
 
-	# print_best_score('grid')
+	prior_dic, post_dic = print_best_score_append_dictionary('grid')
+	grid_regression_dic = {'prior': prior_dic, 'post': post_dic }
+	results_dic['grid_regression'] =  grid_regression_dic
+	print results_dic
 
 
 	# ------------------------------------------
@@ -668,14 +773,14 @@ if __name__ == '__main__':
 
 
 
-	eps_batch = range(5,30)
-	# eps_batch = [5,7,9,11]
+	# eps_batch = range(5,30)
+	eps_batch = [5,7,9,11]
 
     # split randomely the eps in batch for the various threads
 	all_batch = split_in_batch(eps_batch)
 
 	# Vary the standardization and find optimum
-	for standardization in ['None','scaler','MinMaxScaler'] :
+	for standardization in standardization_vec :
 		# parallelize the loop of interval
 		threads = []
 		lock = threading.Lock()
@@ -689,11 +794,47 @@ if __name__ == '__main__':
 		map(lambda t:t.start(), threads)
 		map(lambda t: t.join(), threads)
 
-	print_best_score('cluster')
-
+	prior_dic, post_dic = print_best_score_append_dictionary('cluster')
+	regression_cluster_interarrival = {'prior': prior_dic, 'post': post_dic }
+	results_dic['regression_cluster_interarrival'] = regression_cluster_interarrival
+	print results_dic
 
 	# ------------------------------------------
 	# GRID 1/INTERARRIVAL REGRESSION
+	# ------------------------------------------ 
+
+	# define the intervals
+	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
+	intervals = [0.8,0.9, 1.0, 1.5]
+
+
+    # split randomely the letters in batch for the various threads
+	all_batch = split_in_batch(intervals)
+
+	# Vary the standardization and find optimum
+	for standardization in standardization_vec :
+		# parallelize the loop of interval
+		threads = []
+		lock = threading.Lock()
+		for thread_id in range(num_threads):
+			interval = all_batch[thread_id]
+			t = threading.Thread(target = do_grid_interarrival_regression, \
+				args = (eq_df, welldf, interval, lock ,5,standardization))
+			threads.append(t)
+
+		print 'Starting multithreading'
+		map(lambda t:t.start(), threads)
+		map(lambda t: t.join(), threads)
+
+
+	prior_dic, post_dic = print_best_score_append_dictionary('grid')
+	regression_grid_interarrival = {'prior': prior_dic, 'post': post_dic }
+	results_dic['regression_grid_interarrival'] =  regression_grid_interarrival
+	print results_dic
+
+
+	# ------------------------------------------
+	# GRID REGRESSION PER YEAR
 	# ------------------------------------------ 
 
 	# # define the intervals
@@ -711,7 +852,7 @@ if __name__ == '__main__':
 	# 	lock = threading.Lock()
 	# 	for thread_id in range(num_threads):
 	# 		interval = all_batch[thread_id]
-	# 		t = threading.Thread(target = do_grid_interarrival_regression, \
+	# 		t = threading.Thread(target = do_grid_regression_per_year, \
 	# 			args = (eq_df, welldf, interval, lock ,5,standardization))
 	# 		threads.append(t)
 
@@ -719,5 +860,11 @@ if __name__ == '__main__':
 	# 	map(lambda t:t.start(), threads)
 	# 	map(lambda t: t.join(), threads)
 
-	# print_best_score('grid')
+	# prior_dic, post_dic = print_best_score_append_dictionary('grid')
+	# grid_regression_per_year_dic = {'prior': prior_dic, 'post': post_dic }
+	# results_dic['grid_regression_per_year'] = grid_regression_per_year_dic
+	# print results_dic
+
+	import pickle
+	pickle.dump( results_dic, open( "./tempdata/results_dic.p", "wb" ) )
 
