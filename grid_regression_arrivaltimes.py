@@ -45,6 +45,9 @@ from sklearn.cross_validation import train_test_split
 from sklearn.grid_search import GridSearchCV
 from sklearn import preprocessing
 
+# import function from regression
+from grid_regression_sklearn import mask_region,partition_state
+
 
 def get_hours_between(df):
     dates=[]
@@ -60,50 +63,25 @@ def get_hours_between(df):
         dates.append(datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), 
                                        int(second), int(microsecond)))
     dates=sorted(dates)
-    deltas=[]
+    intertimes =[]
     for i in range(1,len(dates)):
         delta = dates[i] - dates[i-1]
         delta = delta.total_seconds()/3600
-        deltas.append(delta)
-    deltas = np.array(deltas)
-    print 'number of events in region:', df.origintime.count()
-    print 'deltas vector', deltas
-    return deltas
+        intertimes .append(delta)
+    return intertimes 
 
 
-def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None):
+def do_regression(eq_df, welldf, intervals ,lock,cv = 5, standardization = None):
 
 	global best_grid_prior
 	global best_grid_post
 
+
 	for interval in intervals:
 
-		print 'interval', interval
+		# Get dictionary for the partitioned state
+		locdict = partition_state(interval)
 
-		# ------------------------------------------
-		# PARTITION THE MAP INTO CELLS = CREATE THE GRID
-		# ------------------------------------------
-
-		# Make ranges
-		xregions1 = np.arange(33.5, 37., interval)
-		xregions2 = np.arange(34., 37.5, interval) 
-		xregions = zip(xregions1, xregions2)
-		yregions1 = np.arange(-103.,-94. , interval) 
-		yregions2 = np.arange(-102.5 ,-93.5, interval)
-		yregions = zip(yregions1, yregions2)
-
-		# Create a dictionary with keys = (slice in long, slice in latitude)
-		# value = number of the grid cell
-		regions = it.product(xregions,yregions)
-		locdict = dict(zip(regions, range(len(xregions)*len(yregions))))
-
-
-		def mask_region(df, region):
-			mask_region = (df['latitude'] < region[0][1]) \
-			        & (df['latitude'] >= region[0][0]) \
-			        & (df['longitude'] < region[1][1]) \
-			        & (df['longitude'] >= region[1][0])
-			return mask_region
 
 		# Filter by time
 		eq_df_prior = eq_df[eq_df.year < 2010]
@@ -117,14 +95,17 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 		X_post = []
 		Y_prior = []
 		Y_post = [] 
-		### Start grid size loop here
+		# Start grid size loop here
 		for region in locdict.keys():
 
 			# generate dataframe for regression with data < 2010
 
-			# add the number of quakes per region		
+			# add the intert		
 			Y_prior_append = get_hours_between(eq_df_prior[mask_region(eq_df_prior,region)])
-			Y_prior.append(Y_prior_append)
+			# print('Number od quakes  is {}'.format(eq_df_prior[mask_region(eq_df_prior,region)].count()))
+			# print('Y_prior_append is {}'.format(Y_prior_append))
+			for y in Y_prior_append:
+				Y_prior.append(y)
 
 
 			# add the number of wells per region
@@ -134,26 +115,40 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 			X_prior_append = [welldf_prior[mask_region(welldf_prior,region)].count().values[0]
 				, welldf_prior[mask_region(welldf_prior,region)].volume.sum()]
 
-			for i in range(len(Y_prior_append)):
+			for i in range(len(Y_prior_append)):			
 				X_prior.append(X_prior_append)	
+
 
 			# generate dataframe for regression with data >= 2010
 
 			# add the number of quakes per region
 			Y_post_append = get_hours_between(eq_df_post[mask_region(eq_df_post,region)])
-			Y_post.append(Y_post_append)	
+			for y in Y_post_append:
+				Y_post.append(y)	
 			# add the number of wells per region
 			# add the total volume injected per region
 			# add them with into X_post as [nb wells, volume]
 			X_post_append = [welldf_post[mask_region(welldf_post,region)].count().values[0]
 				, welldf_post[mask_region(welldf_post,region)].volume.sum()]
-			for i in range(len(Y_post_append)):
-				X_prior.append(X_post_append)
 
-		print 'X_prior',X_prior
-		print 'size of X_prior', len(X_prior)
-		print 'Y_prior', Y_prior
-		print 'size of Y_prior', len(Y_prior)
+			for i in range(len(Y_post_append)):
+				X_post.append(X_post_append)
+
+		print '------------------------------------------------'
+		print '------------------------------------------------'
+		print('Length of Y_prior is {}'.format( len(Y_prior  )))
+		print('Length of X_prior is {}'.format( len(X_prior  )))
+		print '------------------------------------------------'
+		print '------------------------------------------------'
+		print('Length of Y_post is {}'.format( len(Y_post  )))
+		print('Length of X_post is {}'.format( len(X_post  )))
+		print '------------------------------------------------'
+		print '------------------------------------------------'
+
+		if len(X_prior) == 0:
+			logging.debug('interval is {}, number of regions {}'.format(interval,len(locdict.keys())))
+			break
+
 		X_prior = np.array(X_prior,dtype=np.float64)
 		X_post = np.array(X_post,dtype=np.float64)
 		Y_post = np.array(Y_post, dtype=np.float64).reshape(-1,1)
@@ -221,7 +216,7 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 			# # uncomment this part to check it matches the next paragraph
 			# clf = linear_model.Ridge()
 			# parameters = {'alpha': [0.1, 0.5]}
-			# gs = GridSearchCV(clf, param_grid=parameters, cv=5)
+			# gs = GridSearchCV(clf, param_grid=parameters, cv=5)clf.score(X_test, y_test)
 			# gs.fit(X_train, y_train)
 
 			# best = gs.best_estimator_
@@ -236,15 +231,12 @@ def do_regression(eq_df, welldf, intervals, lock ,cv = 5, standardization = None
 			clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv = cv)
 			clf.fit(X_train, y_train)
 
-			logging.debug('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
-				.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
-
-			with lock:
-				if reg == 'prior': 
-					best_grid_prior.append([clf,clf.score(X_test, y_test),interval])
-				elif reg == 'post':
-					best_grid_post.append([clf,clf.score(X_test, y_test),interval])
-
+			print('{}: For {} cells the score of RidgeCV is {} with alpha = {}'\
+					.format(reg,len(locdict.keys()),clf.score(X_test, y_test),clf.alpha_))
+			if reg == 'prior': 
+				best_grid_prior.append([clf,clf.score(X_test, y_test),interval])
+			elif reg == 'post':
+				best_grid_post.append([clf,clf.score(X_test, y_test),interval])
 
 
 	return
@@ -269,22 +261,23 @@ if __name__ == '__main__':
 
 	# define the intervals
 	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
-	intervals = [0.7]
+	intervals = [0.8,0.9, 1.0, 1.5]
+	# intervals = [1.5]
 
 	# define the number of threads
-	num_threads = 1
+	num_threads = 2
 
-    # split randomely the letters in batch for the various threads
-	all_batch = []
-	size_batch = len(intervals) / num_threads
-	for i in range(num_threads-1):
-		batch_per_threads = random.sample(intervals,size_batch)
-		all_batch.append(batch_per_threads)
-		# new set
-		intervals  = list(set(intervals) - set(batch_per_threads))
-	# now get the rest
-	all_batch.append(intervals)
-	print('look at all_batch {}'.format(all_batch))
+ #    # split randomely the letters in batch for the various threads
+	# all_batch = []
+	# size_batch = len(intervals) / num_threads
+	# for i in range(num_threads-1):
+	# 	batch_per_threads = random.sample(intervals,size_batch)
+	# 	all_batch.append(batch_per_threads)
+	# 	# new set
+	# 	intervals  = list(set(intervals) - set(batch_per_threads))
+	# # now get the rest
+	# all_batch.append(intervals)
+	# print('look at all_batch {}'.format(all_batch))
 
 	best_grid_prior = []
 	best_grid_post = []
@@ -304,8 +297,6 @@ if __name__ == '__main__':
 	# 	map(lambda t:t.start(), threads)
 	# 	map(lambda t: t.join(), threads)
 
-
-	# serial version
 	lock = threading.Lock()
 	do_regression(eq_df, welldf, intervals, lock)
 
