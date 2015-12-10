@@ -12,7 +12,7 @@ Thibaut Perol
 
 ##### Hydraulic fracturing and earthquakes in Oklahoma
 
-Human-induced earthquakes are becoming an important topic in political and scientific discussions and is now vastly reported by the media. It is well known that surface and underground mining, reservoir depletion, injection and withdrawal of fluids and gas from the subsurface are capable of inducing slip on preexisting faults and potentially earthquakes of various magnitudes. Since 2009, new drilling technologies have given access to oil and gas in previously unproductive geological formations. In this project we try to predict the seismicity in Oklahoma based on the number of disposal wells and the history of the volume of saltwater injected.
+Human-induced earthquakes are becoming an important topic in political and scientific discussions and is now vastly reported by the media. It is well known that surface and underground mining, reservoir depletion, injection and withdrawal of fluids and gas from the subsurface are capable of inducing slip on preexisting faults and potentially earthquakes of various magnitudes. Since 2006, new drilling technologies have given access to oil and gas in previously unproductive geological formations. In this project we try to predict the seismicity in Oklahoma based on the number of disposal wells and the history of the volume of saltwater injected.
 
 ## Data Sources:
 
