@@ -21,3 +21,13 @@ We collect some data from the **Oklahoma Geological Survey** on the history of e
 
 
 The water disposal wells data was taken from the **Oklahoma Corporation Commision, Oil and Gas Department website**. Among the numerous files, we opted for a dataset that contained both the year that the well was reported to the Oil and gas department and the location in coordinates.
+
+## Links
+
+### Project website
+
+https://tperol.github.io/cs109-finalproject/
+
+### Podcast website
+
+https://www.youtube.com/watch?v=9vlJRXhLBsQ
