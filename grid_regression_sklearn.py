@@ -722,9 +722,6 @@ if __name__ == '__main__':
 	welldf = pd.DataFrame.from_csv('tempdata/wells_data.csv')
 
 
-	best_grid_prior = []
-	best_grid_post = []
-
 	# define the number of threads
 	num_threads = 4
 
@@ -737,6 +734,9 @@ if __name__ == '__main__':
 	# ------------------------------------------
 	# GRID REGRESSION
 	# ------------------------------------------	
+
+	best_grid_prior = []
+	best_grid_post = []	
 
 	# define the intervals
 	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
@@ -771,7 +771,8 @@ if __name__ == '__main__':
 	# CLUSTER INTERARRIVAL REGRESSION
 	# ------------------------------------------ 
 
-
+	best_grid_prior = []
+	best_grid_post = []
 
 	# eps_batch = range(5,30)
 	eps_batch = [5,7,9,11]
@@ -802,6 +803,8 @@ if __name__ == '__main__':
 	# ------------------------------------------
 	# GRID 1/INTERARRIVAL REGRESSION
 	# ------------------------------------------ 
+	best_grid_prior = []
+	best_grid_post = []
 
 	# define the intervals
 	# intervals = [0.05, 0.1,0.2, 0.3, 0.4,0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
