@@ -381,7 +381,7 @@ def do_cluster_regression(eq_df, welldf, eps_s, lock ,cv = 5, standardization = 
 			clf = linear_model.RidgeCV(alphas=[0.0, 0.1, 1, 10.0, 100.0, 1e3,1e4 ,1e5], cv =cv)
 
 			clf.fit(X_train, y_train)
-			logging.debug('For eps = {}, score : {}'.format(eps,clf.score(X_test, y_test)))
+			logging.debug('{}: For eps = {}, score : {}'.format(reg,eps,clf.score(X_test, y_test)))
 
 			with lock:
 				if reg == 'prior': 
