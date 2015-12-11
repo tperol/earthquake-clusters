@@ -1,0 +1,7 @@
+,eps,r2,coefs,interval
+grid_regression_post,,0.434576345007,[[ -3.29028433e-01   2.39351110e-06]],1.5
+grid_regression_prior,,0.743913605273,[[-1.91436847  2.79175104]],2.0
+regression_cluster_interarrival_post,26.0,0.225763086806,[ 1.35792326 -1.30444587],
+regression_cluster_interarrival_prior,26.0,0.222500607438,[ 1.82393251 -1.7680387 ],
+regression_grid_interarrival_post,,0.00117160054511,[[ -1.63254401e+03  -5.34621836e-05]],0.3
+regression_grid_interarrival_prior,,0.19350546319,[[ -1.71288504e-06   1.19736194e-11]],0.8
