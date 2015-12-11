@@ -30,4 +30,4 @@ https://tperol.github.io/cs109-finalproject/
 
 ### Podcast website
 
-https://www.youtube.com/watch?v=9vlJRXhLBsQ
+https://www.youtube.com/watch?v=k6VOS1V7tmg
